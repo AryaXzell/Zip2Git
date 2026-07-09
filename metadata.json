@@ -1,0 +1,6 @@
+{
+  "name": "Zip2Git",
+  "description": "Unggah berkas ZIP berisi kode sumber langsung ke repositori GitHub dengan cepat dan aman menggunakan Token Akses Pribadi (PAT).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
