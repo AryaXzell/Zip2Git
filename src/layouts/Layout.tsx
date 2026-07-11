@@ -413,7 +413,11 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p>© 2026 Zip2Git. Dipersembahkan untuk kolaborasi open-source yang cepat.</p>
           <div className="flex space-x-4">
-            <Link to="/pengaturan" className="hover:underline">Tentang</Link>
+            <Link to="/tentang" className="hover:underline">Tentang</Link>
+            <span>•</span>
+            <Link to="/legal" className="hover:underline">Syarat & Privasi</Link>
+            <span>•</span>
+            <Link to="/pengaturan" className="hover:underline">Pengaturan</Link>
             <span>•</span>
             <button onClick={() => setShowShortcutModal(true)} className="hover:underline">Pintasan</button>
           </div>

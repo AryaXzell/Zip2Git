@@ -12,6 +12,7 @@ import { Dashboard } from './pages/Dashboard';
 import { SettingsPage } from './pages/Settings';
 import { ActiveSession } from './pages/ActiveSession';
 import { AboutPage } from './pages/About';
+import { LegalPage } from './pages/Legal';
 import { Toaster } from 'react-hot-toast';
 
 export default function App() {
@@ -26,6 +27,7 @@ export default function App() {
             <Route path="/sesi" element={<ActiveSession />} />
             <Route path="/tentang" element={<AboutPage />} />
             <Route path="/pengaturan" element={<SettingsPage />} />
+            <Route path="/legal" element={<LegalPage />} />
             {/* Fallback to Home if unknown route */}
             <Route path="*" element={<Home />} />
           </Routes>

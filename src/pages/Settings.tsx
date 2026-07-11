@@ -16,7 +16,9 @@ import {
   Code2, 
   Sparkles,
   Info,
-  GitBranch
+  GitBranch,
+  Clock,
+  Zap
 } from 'lucide-react';
 
 export const SettingsPage: React.FC = () => {
@@ -165,7 +167,7 @@ export const SettingsPage: React.FC = () => {
                   </label>
                   <input
                     type="text"
-                    value={settings.defaultCommitMessage || 'Upload via Zip2Git 📦'}
+                    value={settings.defaultCommitMessage || 'Upload via Zip2Git'}
                     onChange={(e) => updateSettings({ defaultCommitMessage: e.target.value })}
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                     placeholder="Contoh: Initial commit"
@@ -215,8 +217,9 @@ export const SettingsPage: React.FC = () => {
                           : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900/60'
                       }`}
                     >
-                      <span className="text-xs font-bold flex items-center gap-1">
-                        ⏱️ Sekuensial
+                      <span className="text-xs font-bold flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5" />
+                        Sekuensial
                       </span>
                       <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium leading-normal">
                         Unggah satu demi satu. Sangat aman dari limitasi secondary rate limit GitHub API.
@@ -232,8 +235,9 @@ export const SettingsPage: React.FC = () => {
                           : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900/60'
                       }`}
                     >
-                      <span className="text-xs font-bold flex items-center gap-1">
-                        ⚡ Paralel
+                      <span className="text-xs font-bold flex items-center gap-1.5">
+                        <Zap className="h-3.5 w-3.5" />
+                        Paralel
                       </span>
                       <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium leading-normal">
                         Unggah beberapa berkas sekaligus secara bersamaan untuk kecepatan maksimal.

@@ -143,6 +143,11 @@ export const Login: React.FC = () => {
             </ol>
           </div>
 
+          {/* Legal Disclaimer Link */}
+          <div className="border-t border-slate-100 dark:border-slate-800 pt-3 text-center text-[11px] text-slate-450 dark:text-slate-500">
+            Dengan masuk, Anda menyetujui <a href="#/legal" className="text-indigo-500 hover:underline font-medium">Syarat & Ketentuan</a> serta <a href="#/legal" className="text-indigo-500 hover:underline font-medium">Kebijakan Privasi</a> kami.
+          </div>
+
         </form>
       </div>
     </div>

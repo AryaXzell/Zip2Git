@@ -58,7 +58,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       theme: 'dark',
       clearSessionOnClose: true,
       defaultBranch: 'main',
-      defaultCommitMessage: 'Upload via Zip2Git 📦',
+      defaultCommitMessage: 'Upload via Zip2Git',
       autoOverwrite: true,
       uploadMethod: 'parallel',
       parallelLimit: 10,
