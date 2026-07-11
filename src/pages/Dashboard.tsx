@@ -22,6 +22,7 @@ import {
   getBranchRef, 
   updateRef, 
   createRef,
+  createPullRequest,
   TreeItem 
 } from '../services/github';
 import { 
@@ -31,7 +32,11 @@ import {
   HelpCircle,
   LogOut,
   FolderOpen,
-  RefreshCw
+  RefreshCw,
+  Sliders,
+  EyeOff,
+  ShieldAlert,
+  Settings2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import JSZip from 'jszip';
@@ -59,6 +64,13 @@ export const Dashboard: React.FC = () => {
   const [targetBranch, setTargetBranch] = useState(settings.defaultBranch || 'main');
   const [commitMessage, setCommitMessage] = useState(settings.defaultCommitMessage || 'Upload via Zip2Git 📦');
 
+  // Pull Request options
+  const [shouldCreatePR, setShouldCreatePR] = useState(false);
+  const [prBaseBranch, setPrBaseBranch] = useState('main');
+  const [prTitle, setPrTitle] = useState('PR: Update from Zip2Git');
+  const [prBody, setPrBody] = useState('Pull Request ini dibuat otomatis oleh Zip2Git setelah pengunggahan berkas.');
+  const [createdPrUrl, setCreatedPrUrl] = useState<string | null>(null);
+
   // Update form states when settings change (if not customized yet)
   useEffect(() => {
     if (settings.defaultBranch) {
@@ -75,6 +87,69 @@ export const Dashboard: React.FC = () => {
   const [zipFileInfo, setZipFileInfo] = useState<ZipFileInfo | null>(null);
   const [zipInstance, setZipInstance] = useState<JSZip | null>(null);
   const [isParsing, setIsParsing] = useState(false);
+
+  // File exclusion & custom ignore preset states
+  const [excludedFiles, setExcludedFiles] = useState<Set<string>>(new Set());
+  const [folderFilesList, setFolderFilesList] = useState<File[]>([]);
+  const [ignoreNodeModules, setIgnoreNodeModules] = useState(true);
+  const [ignoreBuild, setIgnoreBuild] = useState(true);
+  const [ignoreEnv, setIgnoreEnv] = useState(true);
+  const [ignoreSystem, setIgnoreSystem] = useState(true);
+  const [customIgnoreText, setCustomIgnoreText] = useState(settings.customIgnoreRules || '');
+
+  // Helper to construct full combined ignore rules string
+  const getCombinedIgnoreRules = () => {
+    const rules: string[] = [];
+    if (ignoreNodeModules) rules.push('node_modules');
+    if (ignoreBuild) rules.push('dist', 'build', '.next', 'out');
+    if (ignoreEnv) rules.push('.env', '.env.local', '.env.development', '.env.production');
+    if (ignoreSystem) rules.push('.ds_store', 'thumbs.db');
+    
+    if (customIgnoreText.trim()) {
+      customIgnoreText.split(/[\n,]+/).forEach(r => {
+        if (r.trim()) rules.push(r.trim());
+      });
+    }
+    return rules.join('\n');
+  };
+
+  // Toggle single file selection
+  const handleToggleFile = (path: string) => {
+    setExcludedFiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  };
+
+  // Toggle multiple files selection at once
+  const handleToggleMultipleFiles = (paths: string[], exclude: boolean) => {
+    setExcludedFiles((prev) => {
+      const next = new Set(prev);
+      paths.forEach(path => {
+        if (exclude) {
+          next.add(path);
+        } else {
+          next.delete(path);
+        }
+      });
+      return next;
+    });
+  };
+
+  // Toggle all files selection
+  const handleToggleAll = (selectNone: boolean) => {
+    if (!zipFileInfo) return;
+    if (selectNone) {
+      setExcludedFiles(new Set(zipFileInfo.files.map((f) => f.path)));
+    } else {
+      setExcludedFiles(new Set());
+    }
+  };
 
   // Pre-fetched SHA Map for diff preview
   const [shaMap, setShaMap] = useState<Map<string, string> | null>(null);
@@ -125,11 +200,45 @@ export const Dashboard: React.FC = () => {
     };
   }, [token, selectedRepo, targetBranch, user]);
 
+  // Re-parse ZIP or Folder when ignore rules change
+  useEffect(() => {
+    if (!selectedFile) return;
+    
+    const reparseFile = async () => {
+      setIsParsing(true);
+      try {
+        const rules = getCombinedIgnoreRules();
+        if (uploadMode === 'folder' && folderFilesList.length > 0) {
+          const { zip, info } = await createZipFromFiles(folderFilesList, rules);
+          setZipInstance(zip);
+          setZipFileInfo(info);
+        } else if (uploadMode === 'zip' && selectedFile && 'type' in selectedFile) {
+          const { zip, info } = await parseZipFile(selectedFile as File, rules);
+          setZipInstance(zip);
+          setZipFileInfo(info);
+        }
+      } catch (err) {
+        console.error('Error re-parsing on rule change:', err);
+      } finally {
+        setIsParsing(false);
+      }
+    };
+
+    const timer = setTimeout(() => {
+      reparseFile();
+    }, 450); // Debounce to allow seamless slider/text typing adjustments
+
+    return () => clearTimeout(timer);
+  }, [ignoreNodeModules, ignoreBuild, ignoreEnv, ignoreSystem, customIgnoreText, selectedFile, uploadMode]);
+
   const handleZipSelected = async (file: File) => {
     setIsParsing(true);
+    setExcludedFiles(new Set());
+    setFolderFilesList([]);
     setSelectedFile(file);
     try {
-      const { zip, info } = await parseZipFile(file, settings.customIgnoreRules);
+      const rules = getCombinedIgnoreRules();
+      const { zip, info } = await parseZipFile(file, rules);
       setZipInstance(zip);
       setZipFileInfo(info);
     } catch (err: any) {
@@ -145,6 +254,8 @@ export const Dashboard: React.FC = () => {
   const handleFolderSelected = async (filesList: File[]) => {
     if (filesList.length === 0) return;
     setIsParsing(true);
+    setExcludedFiles(new Set());
+    setFolderFilesList(filesList);
     const rootName = filesList[0]?.webkitRelativePath?.split('/')[0] || 'folder-upload';
     const totalSize = filesList.reduce((acc, f) => acc + f.size, 0);
     
@@ -154,7 +265,8 @@ export const Dashboard: React.FC = () => {
     });
 
     try {
-      const { zip, info } = await createZipFromFiles(filesList, settings.customIgnoreRules);
+      const rules = getCombinedIgnoreRules();
+      const { zip, info } = await createZipFromFiles(filesList, rules);
       setZipInstance(zip);
       setZipFileInfo(info);
     } catch (err: any) {
@@ -171,6 +283,9 @@ export const Dashboard: React.FC = () => {
     setSelectedFile(null);
     setZipFileInfo(null);
     setZipInstance(null);
+    setExcludedFiles(new Set());
+    setFolderFilesList([]);
+    setCreatedPrUrl(null);
     setProgress({
       status: 'idle',
       percent: 0,
@@ -197,9 +312,11 @@ export const Dashboard: React.FC = () => {
       return;
     }
 
-    const { files, totalFiles } = zipFileInfo;
-    if (files.length === 0) {
-      toast.error('Proyek kosong atau tidak berisi berkas yang valid.');
+    // Filter files to only upload checked ones
+    const filesToUpload = zipFileInfo.files.filter(f => !excludedFiles.has(f.path));
+    const totalFiles = filesToUpload.length;
+    if (totalFiles === 0) {
+      toast.error('Semua berkas dikecualikan! Pilih setidaknya satu berkas untuk diunggah.');
       return;
     }
 
@@ -241,7 +358,7 @@ export const Dashboard: React.FC = () => {
 
       // Worker helper to upload a single file's blob and register it to treeItems
       const uploadFileBlob = async (index: number) => {
-        const fileMeta = files[index];
+        const fileMeta = filesToUpload[index];
         const jszipFile = zipInstance.file(fileMeta.path);
         if (!jszipFile) {
           return; // Skip folders or empty structures
@@ -373,8 +490,8 @@ export const Dashboard: React.FC = () => {
           try {
             await uploadFileBlob(i);
           } catch (err: any) {
-            console.error(`Gagal membuat blob untuk ${files[i].path}:`, err);
-            let friendlyError = `Gagal mengunggah "${files[i].path}": `;
+            console.error(`Gagal membuat blob untuk ${filesToUpload[i].path}:`, err);
+            let friendlyError = `Gagal mengunggah "${filesToUpload[i].path}": `;
             if (err.status === 401) {
               friendlyError += 'Token akses tidak valid atau telah kedaluwarsa.';
             } else if (err.status === 403) {
@@ -428,6 +545,32 @@ export const Dashboard: React.FC = () => {
         await createRef(token, owner, repoName, targetBranch, newCommitSha);
       }
 
+      // Automatic Pull Request Creation
+      let autoPrUrl: string | null = null;
+      if (shouldCreatePR && targetBranch.toLowerCase() !== prBaseBranch.toLowerCase()) {
+        try {
+          setProgress((prev) => ({
+            ...prev,
+            currentFile: 'Membuat Pull Request otomatis...',
+          }));
+          const prData = await createPullRequest(
+            token,
+            owner,
+            repoName,
+            prTitle.trim() || `PR: Update dari Zip2Git (${targetBranch})`,
+            targetBranch,
+            prBaseBranch,
+            prBody.trim() || 'Pull Request dibuat secara otomatis oleh Zip2Git.'
+          );
+          autoPrUrl = prData.html_url;
+          setCreatedPrUrl(prData.html_url);
+          toast.success(`Pull Request #${prData.number} berhasil dibuat!`);
+        } catch (prErr: any) {
+          console.error('Gagal membuat Pull Request:', prErr);
+          toast.error(`Gagal membuat Pull Request otomatis: ${prErr.message}`);
+        }
+      }
+
       // Completed Successfully
       setProgress((prev) => ({
         ...prev,
@@ -445,7 +588,7 @@ export const Dashboard: React.FC = () => {
       }
 
       // Register success to history
-      const githubRepoUrl = `${selectedRepo.html_url}/tree/${targetBranch}`;
+      const githubRepoUrl = autoPrUrl || `${selectedRepo.html_url}/tree/${targetBranch}`;
       addHistoryItem({
         repoName: selectedRepo.full_name,
         zipName: selectedFile?.name || 'unknown.zip',
@@ -536,23 +679,220 @@ export const Dashboard: React.FC = () => {
             onSetTargetBranch={setTargetBranch}
           />
 
+          {/* Ignore Presets and Filters Card */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4 text-left">
+            <h3 className="font-bold text-sm tracking-tight flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+              <Sliders className="h-4.5 w-4.5 text-indigo-500" />
+              Saringan Berkas (Ignore Rules)
+            </h3>
+            
+            <div className="space-y-2.5">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="ignoreNodeModules"
+                  checked={ignoreNodeModules}
+                  onChange={(e) => setIgnoreNodeModules(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded text-indigo-600 focus:ring-indigo-500/30 dark:bg-slate-950 dark:border-slate-850 border-slate-300 dark:border-slate-800 cursor-pointer"
+                />
+                <label htmlFor="ignoreNodeModules" className="text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+                  Abaikan <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[10px] font-mono">node_modules/</code>
+                </label>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="ignoreBuild"
+                  checked={ignoreBuild}
+                  onChange={(e) => setIgnoreBuild(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded text-indigo-600 focus:ring-indigo-500/30 dark:bg-slate-950 dark:border-slate-850 border-slate-300 dark:border-slate-800 cursor-pointer"
+                />
+                <label htmlFor="ignoreBuild" className="text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+                  Abaikan folder build/dist/out
+                </label>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="ignoreEnv"
+                  checked={ignoreEnv}
+                  onChange={(e) => setIgnoreEnv(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded text-indigo-600 focus:ring-indigo-500/30 dark:bg-slate-950 dark:border-slate-850 border-slate-300 dark:border-slate-800 cursor-pointer"
+                />
+                <label htmlFor="ignoreEnv" className="text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+                  Abaikan berkas <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[10px] font-mono">.env</code> rahasia
+                </label>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="ignoreSystem"
+                  checked={ignoreSystem}
+                  onChange={(e) => setIgnoreSystem(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded text-indigo-600 focus:ring-indigo-500/30 dark:bg-slate-950 dark:border-slate-850 border-slate-300 dark:border-slate-800 cursor-pointer"
+                />
+                <label htmlFor="ignoreSystem" className="text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+                  Abaikan sampah OS (.DS_Store)
+                </label>
+              </div>
+            </div>
+
+            <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+              <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                Pola Pengabaian Kustom (Koma/Baris baru):
+              </label>
+              <textarea
+                value={customIgnoreText}
+                onChange={(e) => setCustomIgnoreText(e.target.value)}
+                placeholder="contoh: *.log, test/, private.key"
+                className="w-full h-16 px-3 py-2 bg-slate-50 border border-slate-200 dark:bg-slate-950 dark:border-slate-800 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-slate-900 dark:text-white resize-none"
+              />
+              <p className="text-[9px] text-slate-400">
+                Setiap aturan akan dicocokkan sebagai bagian dari jalur berkas Anda secara dinamis.
+              </p>
+            </div>
+          </div>
+
           {selectedRepo && (
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4 text-left">
               <h3 className="font-bold text-sm tracking-tight flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
                 <GitCommit className="h-4.5 w-4.5 text-indigo-500" />
                 Pesan Commit
               </h3>
-              <div className="space-y-1.5">
-                <input
-                  type="text"
-                  value={commitMessage}
-                  onChange={(e) => setCommitMessage(e.target.value)}
-                  placeholder="Upload via Zip2Git"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 dark:bg-slate-950 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-slate-900 dark:text-white"
-                />
-                <p className="text-[10px] text-slate-400">
-                  Pesan penanda perubahan yang akan disimpan di riwayat git GitHub Anda.
-                </p>
+              <div className="space-y-2.5">
+                <div className="space-y-1.5">
+                  <input
+                    type="text"
+                    value={commitMessage}
+                    onChange={(e) => setCommitMessage(e.target.value)}
+                    placeholder="Upload via Zip2Git"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 dark:bg-slate-950 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-slate-900 dark:text-white"
+                  />
+                  <p className="text-[10px] text-slate-400">
+                    Pesan penanda perubahan yang akan disimpan di riwayat git GitHub Anda.
+                  </p>
+                </div>
+
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 space-y-1.5">
+                  <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                    <Sparkles className="h-3 w-3 text-indigo-500 animate-pulse" />
+                    Template Pesan Instan:
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { label: 'Inisialisasi 🚀', text: 'Initial commit via Zip2Git 🚀' },
+                      { label: 'Perbarui Berkas 📦', text: 'Update files via Zip2Git 📦' },
+                      { label: 'Perbaikan Bug 🛠️', text: 'Fix bugs and refactor code 🛠️' },
+                      { label: 'Rilis 🎉', text: 'Release new version 🎉' },
+                    ].map((preset, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setCommitMessage(preset.text)}
+                        className="px-2 py-1 bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-[10px] text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white font-medium transition-colors cursor-pointer"
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                    {selectedFile && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const dateStr = new Date().toLocaleDateString('id-ID', {
+                            day: 'numeric',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          });
+                          setCommitMessage(`Update: ${selectedFile.name} (${dateStr}) 📦`);
+                        }}
+                        className="px-2 py-1 bg-indigo-50/50 hover:bg-indigo-100/50 dark:bg-indigo-950/20 dark:hover:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-900/30 rounded-lg text-[10px] text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-bold transition-colors cursor-pointer"
+                      >
+                        Otomatis Nama Berkas ⚡
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {selectedRepo && (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4 text-left">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                <h3 className="font-bold text-sm tracking-tight flex items-center gap-2">
+                  <Settings2 className="h-4.5 w-4.5 text-indigo-500" />
+                  Alur Pull Request (PR)
+                </h3>
+                <span className="px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 text-[9px] font-bold rounded font-sans uppercase">
+                  Otomasi
+                </span>
+              </div>
+              
+              <div className="space-y-3.5">
+                <div className="flex items-center gap-2.5">
+                  <input
+                    type="checkbox"
+                    id="shouldCreatePR"
+                    checked={shouldCreatePR}
+                    onChange={(e) => setShouldCreatePR(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/30 cursor-pointer dark:bg-slate-950 dark:border-slate-800"
+                  />
+                  <label htmlFor="shouldCreatePR" className="text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+                    Buat Pull Request otomatis setelah unggah
+                  </label>
+                </div>
+
+                {shouldCreatePR && (
+                  <div className="space-y-3 pt-2 pl-4 border-l-2 border-indigo-100 dark:border-indigo-900/50">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                        Target Penggabungan (Base Branch):
+                      </label>
+                      <input
+                        type="text"
+                        value={prBaseBranch}
+                        onChange={(e) => setPrBaseBranch(e.target.value)}
+                        placeholder="contoh: main atau master"
+                        className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 dark:bg-slate-950 dark:border-slate-800 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-slate-900 dark:text-white font-mono"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                        Judul Pull Request:
+                      </label>
+                      <input
+                        type="text"
+                        value={prTitle}
+                        onChange={(e) => setPrTitle(e.target.value)}
+                        placeholder="PR: Update dari Zip2Git"
+                        className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 dark:bg-slate-950 dark:border-slate-800 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-slate-900 dark:text-white"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                        Deskripsi Pull Request:
+                      </label>
+                      <textarea
+                        value={prBody}
+                        onChange={(e) => setPrBody(e.target.value)}
+                        placeholder="Deskripsikan isi Pull Request ini..."
+                        className="w-full h-16 px-2.5 py-1.5 bg-slate-50 border border-slate-200 dark:bg-slate-950 dark:border-slate-800 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-slate-900 dark:text-white resize-none"
+                      />
+                    </div>
+
+                    {targetBranch.toLowerCase() === prBaseBranch.toLowerCase() && (
+                      <div className="p-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30 rounded-lg text-[10px] text-amber-700 dark:text-amber-400">
+                        ⚠️ <strong>Peringatan:</strong> Branch target ({targetBranch}) sama dengan Base Branch ({prBaseBranch}). Pull Request hanya dapat dibuat jika kedua branch berbeda.
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -586,6 +926,10 @@ export const Dashboard: React.FC = () => {
                 zipInstance={zipInstance}
                 shaMap={shaMap}
                 isLoadingShaMap={isLoadingShaMap}
+                excludedFiles={excludedFiles}
+                onToggleFile={handleToggleFile}
+                onToggleMultipleFiles={handleToggleMultipleFiles}
+                onToggleAll={handleToggleAll}
               />
               
               {selectedRepo ? (
@@ -608,6 +952,29 @@ export const Dashboard: React.FC = () => {
           {progress.status !== 'idle' && (
             <div className="space-y-6">
               <ProgressBar progress={progress} />
+
+              {progress.status === 'completed' && createdPrUrl && (
+                <div className="p-5 bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-950/20 dark:to-purple-950/20 border border-indigo-150 dark:border-indigo-900/50 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in text-left">
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-bold text-indigo-950 dark:text-indigo-200 flex items-center gap-1.5">
+                      <Sparkles className="h-4.5 w-4.5 text-indigo-500 animate-pulse" />
+                      Pull Request Berhasil Dibuat!
+                    </h4>
+                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                      Cabang fitur Anda telah dikirim dan Pull Request otomatis Anda siap ditinjau di GitHub.
+                    </p>
+                  </div>
+                  <a
+                    href={createdPrUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 shadow-lg"
+                  >
+                    Buka Pull Request 🚀
+                  </a>
+                </div>
+              )}
+
               {progress.status === 'completed' && (
                 <button
                   onClick={handleClearFile}

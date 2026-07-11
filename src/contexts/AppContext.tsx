@@ -5,7 +5,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { GitHubUser, GitHubRepo, UploadHistoryItem, AppSettings } from '../types';
-import { validateToken, getRepositories, createRepository } from '../services/github';
+import { validateToken, getRepositories, createRepository, deleteRepository } from '../services/github';
 import toast from 'react-hot-toast';
 
 interface AppContextType {
@@ -23,6 +23,7 @@ interface AppContextType {
   clearSession: () => void;
   refreshRepos: () => Promise<void>;
   createNewRepo: (name: string, description: string, isPrivate: boolean, autoInit: boolean) => Promise<GitHubRepo>;
+  deleteRepo: (owner: string, name: string) => Promise<void>;
   addHistoryItem: (item: Omit<UploadHistoryItem, 'id' | 'timestamp'>) => void;
   toggleTheme: () => void;
   updateSettings: (newSettings: Partial<AppSettings>) => void;
@@ -191,6 +192,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return newRepo;
   };
 
+  const deleteRepo = async (owner: string, name: string): Promise<void> => {
+    if (!token) throw new Error('Otentikasi diperlukan.');
+    await deleteRepository(token, owner, name);
+    setRepos((prev) => prev.filter((r) => r.full_name !== `${owner}/${name}`));
+  };
+
   const addHistoryItem = (item: Omit<UploadHistoryItem, 'id' | 'timestamp'>) => {
     const newItem: UploadHistoryItem = {
       ...item,
@@ -240,6 +247,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         clearSession,
         refreshRepos,
         createNewRepo,
+        deleteRepo,
         addHistoryItem,
         toggleTheme,
         updateSettings,

@@ -383,3 +383,81 @@ export async function createRef(
   }
 }
 
+export async function deleteRepository(
+  token: string,
+  owner: string,
+  repo: string
+): Promise<void> {
+  const response = await fetch(`${BASE_URL}/repos/${owner}/${repo}`, {
+    method: 'DELETE',
+    headers: getHeaders(token),
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    if (response.status === 403 || response.status === 401) {
+      throw new Error('Izin tidak cukup atau token tidak valid. Pastikan token Anda memiliki cakupan (scope) "delete_repo" agar dapat menghapus repositori.');
+    }
+    throw new Error(errData.message || `Gagal menghapus repositori. Status: ${response.status}`);
+  }
+}
+
+export async function getBranches(
+  token: string,
+  owner: string,
+  repo: string
+): Promise<string[]> {
+  const response = await fetch(`${BASE_URL}/repos/${owner}/${repo}/branches?per_page=100`, {
+    headers: getHeaders(token),
+  });
+  if (!response.ok) {
+    throw new Error(`Gagal mengambil daftar branch. Status: ${response.status}`);
+  }
+  const data = await response.json();
+  return data.map((b: any) => b.name);
+}
+
+export async function createNewBranch(
+  token: string,
+  owner: string,
+  repo: string,
+  newBranch: string,
+  sourceBranch: string
+): Promise<void> {
+  const sourceRef = await getBranchRef(token, owner, repo, sourceBranch);
+  if (!sourceRef) {
+    throw new Error(`Branch sumber "${sourceBranch}" tidak ditemukan.`);
+  }
+  await createRef(token, owner, repo, newBranch, sourceRef.commitSha);
+}
+
+export async function createPullRequest(
+  token: string,
+  owner: string,
+  repo: string,
+  title: string,
+  head: string,
+  base: string,
+  body: string
+): Promise<{ html_url: string; number: number }> {
+  const response = await fetch(`${BASE_URL}/repos/${owner}/${repo}/pulls`, {
+    method: 'POST',
+    headers: getHeaders(token),
+    body: JSON.stringify({
+      title,
+      head,
+      base,
+      body,
+    }),
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.message || `Gagal membuat Pull Request. Status: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+
+
