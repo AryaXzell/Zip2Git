@@ -13,7 +13,17 @@ import { ProgressBar } from '../components/ProgressBar';
 import { HistoryList } from '../components/HistoryList';
 import { GitHubRepo, ZipFileInfo, UploadProgress } from '../types';
 import { parseZipFile, fileToBase64, createZipFromFiles } from '../utils/zip';
-import { getRepoTree, uploadFile } from '../services/github';
+import { 
+  getRepoTree, 
+  uploadFile, 
+  createBlob, 
+  createTree, 
+  createCommit, 
+  getBranchRef, 
+  updateRef, 
+  createRef,
+  TreeItem 
+} from '../services/github';
 import { 
   GitCommit, 
   Play, 
@@ -208,17 +218,14 @@ export const Dashboard: React.FC = () => {
       const owner = user?.login || selectedRepo.full_name.split('/')[0];
       const repoName = selectedRepo.name;
 
-      // 1. Resolve SHAs. Reuse pre-fetched shaMap if available, else fetch fresh
-      let currentShaMap = shaMap;
-      if (!currentShaMap) {
-        setProgress((prev) => ({
-          ...prev,
-          percent: 10,
-          currentFile: 'Mengambil metadata berkas yang ada di GitHub...',
-        }));
-        currentShaMap = await getRepoTree(token, owner, repoName, targetBranch);
-        setShaMap(currentShaMap);
-      }
+      setProgress((prev) => ({
+        ...prev,
+        percent: 10,
+        currentFile: 'Memeriksa status branch target...',
+      }));
+
+      // Fetch target branch reference (commit & tree)
+      const branchInfo = await getBranchRef(token, owner, repoName, targetBranch);
 
       setProgress((prev) => ({
         ...prev,
@@ -226,61 +233,37 @@ export const Dashboard: React.FC = () => {
         percent: 15,
       }));
 
-      const startTime = Date.now();
+      let startTime = Date.now();
       const message = commitMessage.trim() || 'Upload via Zip2Git';
       let lastProgressUpdate = 0;
+      let uploadedCount = 0;
+      const treeItems: TreeItem[] = [];
 
-      // 2. Upload files recursively / sequentially
-      for (let i = 0; i < totalFiles; i++) {
-        const fileMeta = files[i];
+      // Worker helper to upload a single file's blob and register it to treeItems
+      const uploadFileBlob = async (index: number) => {
+        const fileMeta = files[index];
         const jszipFile = zipInstance.file(fileMeta.path);
         if (!jszipFile) {
-          continue; // Skip folders or empty structures
+          return; // Skip folders or empty structures
         }
 
         const base64Content = await fileToBase64(jszipFile);
-        const fileSha = currentShaMap.get(fileMeta.path);
+        const blobSha = await createBlob(token, owner, repoName, base64Content);
+        
+        treeItems.push({
+          path: fileMeta.path,
+          mode: '100644', // 100644 is normal blob, 100755 for executables
+          type: 'blob',
+          sha: blobSha,
+        });
 
-        try {
-          // Call Github Content Put API
-          await uploadFile({
-            token,
-            owner,
-            repo: repoName,
-            path: fileMeta.path,
-            contentBase64: base64Content,
-            commitMessage: message,
-            branch: targetBranch,
-            sha: fileSha, // Supply SHA if file exists to overwrite safely
-          });
-        } catch (apiErr: any) {
-          // Humanize error message depending on GitHub REST API response
-          console.error(`Gagal mengunggah berkas ${fileMeta.path}:`, apiErr);
-          
-          let friendlyError = `Gagal mengunggah "${fileMeta.path}": `;
-          if (apiErr.status === 401) {
-            friendlyError += 'Token akses tidak valid atau telah kedaluwarsa.';
-          } else if (apiErr.status === 403) {
-            friendlyError += 'Rate limit GitHub habis atau otorisasi kurang (periksa izin repo write).';
-          } else if (apiErr.status === 404) {
-            friendlyError += 'Repositori atau branch target tidak ditemukan.';
-          } else if (apiErr.status === 422) {
-            friendlyError += 'Bentrok validasi SHA (periksa apakah berkas diganti pihak lain) atau ukuran berkas terlalu besar.';
-          } else {
-            friendlyError += apiErr.message || 'Error tidak diketahui.';
-          }
-          throw new Error(friendlyError);
-        }
-
-        // Compute metrics
-        const uploadedCount = i + 1;
-        const percent = Math.min(15 + Math.round((uploadedCount / totalFiles) * 84), 99);
+        uploadedCount++;
+        const percent = Math.min(15 + Math.round((uploadedCount / totalFiles) * 75), 90);
         const elapsedTime = Date.now() - startTime;
         const avgTimePerFile = elapsedTime / uploadedCount;
         const remainingFiles = totalFiles - uploadedCount;
         const estimatedSecondsRemaining = Math.max(0, Math.round((avgTimePerFile * remainingFiles) / 1000));
 
-        // Throttle UI rendering to max 5 times per second (200ms intervals) for incredible low-spec performance
         const now = Date.now();
         if (now - lastProgressUpdate > 200 || uploadedCount === totalFiles || uploadedCount === 1) {
           setProgress((prev) => ({
@@ -292,6 +275,157 @@ export const Dashboard: React.FC = () => {
           }));
           lastProgressUpdate = now;
         }
+      };
+
+      const uploadMethod = settings.uploadMethod || 'parallel';
+      let parallelUploadSuccess = false;
+
+      if (uploadMethod === 'parallel') {
+        let currentParallelLimit = settings.parallelLimit || 10;
+        let keepTryingParallel = true;
+
+        while (keepTryingParallel && !parallelUploadSuccess) {
+          try {
+            // Reset state for this attempt to ensure no duplicates or corrupted file tracking
+            treeItems.length = 0;
+            uploadedCount = 0;
+            startTime = Date.now();
+            lastProgressUpdate = 0;
+
+            let nextIndex = 0;
+            let hasError = false;
+            let errorMessage = '';
+
+            const worker = async () => {
+              while (nextIndex < totalFiles && !hasError) {
+                const index = nextIndex++;
+                try {
+                  await uploadFileBlob(index);
+                } catch (err: any) {
+                  console.error(`Gagal membuat blob untuk file indeks ${index} (Batas Utas: ${currentParallelLimit}):`, err);
+                  hasError = true;
+                  let friendlyError = `Gagal mengunggah file ke-${index + 1}: `;
+                  if (err.status === 401) {
+                    friendlyError += 'Token akses tidak valid atau telah kedaluwarsa.';
+                  } else if (err.status === 403) {
+                    friendlyError += 'Rate limit GitHub habis atau otorisasi kurang.';
+                  } else {
+                    friendlyError += err.message || 'Error tidak diketahui.';
+                  }
+                  errorMessage = friendlyError;
+                }
+              }
+            };
+
+            const workers = Array.from(
+              { length: Math.min(currentParallelLimit, totalFiles) },
+              () => worker()
+            );
+            
+            await Promise.all(workers);
+
+            if (hasError) {
+              throw new Error(errorMessage);
+            }
+            parallelUploadSuccess = true;
+          } catch (err: any) {
+            console.warn(`Pengunggahan paralel gagal dengan ${currentParallelLimit} utas:`, err);
+            
+            if (currentParallelLimit > 50) {
+              // Fallback tier 1: Downgrade to 50 threads
+              currentParallelLimit = 50;
+              console.log(`Mengurangi konkurensi menjadi 50 utas dan mencoba kembali...`);
+              
+              setProgress((prev) => ({
+                ...prev,
+                percent: 15,
+                currentFile: 'Terjadi limitasi API. Menurunkan jumlah simultan ke 50 utas dan mencoba kembali...',
+              }));
+              
+              // Wait 1.5 seconds for GitHub API rate limiting to cool down slightly
+              await new Promise((resolve) => setTimeout(resolve, 1500));
+            } else {
+              // Fallback tier 2: Stop parallel retry, proceed to sequential mode
+              keepTryingParallel = false;
+              console.warn('Pengunggahan paralel dengan 50 utas atau kurang masih terhambat. Beralih ke sekuensial...');
+            }
+          }
+        }
+      }
+
+      // If uploadMethod is sequential OR if parallel upload failed/exhausted all fallback tiers
+      if (!parallelUploadSuccess) {
+        console.log('Memulai pengunggahan sekuensial...');
+        // Clear items uploaded in parallel so far and run sequentially for complete safety and absolute integrity
+        treeItems.length = 0;
+        uploadedCount = 0;
+        startTime = Date.now();
+        lastProgressUpdate = 0;
+        
+        setProgress((prev) => ({
+          ...prev,
+          percent: 15,
+          currentFile: 'Beralih ke mode sekuensial otomatis demi integritas data...',
+        }));
+
+        // Sequential Mode: create blobs one by one
+        for (let i = 0; i < totalFiles; i++) {
+          try {
+            await uploadFileBlob(i);
+          } catch (err: any) {
+            console.error(`Gagal membuat blob untuk ${files[i].path}:`, err);
+            let friendlyError = `Gagal mengunggah "${files[i].path}": `;
+            if (err.status === 401) {
+              friendlyError += 'Token akses tidak valid atau telah kedaluwarsa.';
+            } else if (err.status === 403) {
+              friendlyError += 'Rate limit GitHub habis atau otorisasi kurang.';
+            } else {
+              friendlyError += err.message || 'Error tidak diketahui.';
+            }
+            throw new Error(friendlyError);
+          }
+        }
+      }
+
+      setProgress((prev) => ({
+        ...prev,
+        percent: 92,
+        currentFile: 'Membuat pohon berkas (Git Tree)...',
+      }));
+
+      const newTreeSha = await createTree(
+        token,
+        owner,
+        repoName,
+        treeItems,
+        branchInfo?.treeSha || undefined
+      );
+
+      setProgress((prev) => ({
+        ...prev,
+        percent: 96,
+        currentFile: 'Membuat Git Commit...',
+      }));
+
+      const newCommitSha = await createCommit(
+        token,
+        owner,
+        repoName,
+        message,
+        newTreeSha,
+        branchInfo ? [branchInfo.commitSha] : []
+      );
+
+      setProgress((prev) => ({
+        ...prev,
+        percent: 98,
+        currentFile: 'Memperbarui referensi branch...',
+      }));
+
+      if (branchInfo) {
+        await updateRef(token, owner, repoName, targetBranch, newCommitSha);
+      } else {
+        await createRef(token, owner, repoName, targetBranch, newCommitSha);
       }
 
       // Completed Successfully

@@ -194,6 +194,96 @@ export const SettingsPage: React.FC = () => {
                   </label>
                 </div>
 
+                {/* Metode Upload (Sequential vs Parallel) */}
+                <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800/60">
+                  <div className="space-y-0.5">
+                    <label className="block text-xs font-bold text-slate-800 dark:text-white">
+                      Metode Pengunggahan Berkas
+                    </label>
+                    <p className="text-[10px] text-slate-400 leading-normal max-w-xs sm:max-w-md">
+                      Pilih bagaimana berkas Anda diunggah ke GitHub. Pengunggahan paralel mempercepat proses namun menggunakan lebih banyak batas API sekaligus.
+                    </p>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => updateSettings({ uploadMethod: 'sequential' })}
+                      className={`flex flex-col items-start gap-1 p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        settings.uploadMethod === 'sequential'
+                          ? 'border-indigo-500 bg-indigo-50/40 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400'
+                          : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900/60'
+                      }`}
+                    >
+                      <span className="text-xs font-bold flex items-center gap-1">
+                        ⏱️ Sekuensial
+                      </span>
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium leading-normal">
+                        Unggah satu demi satu. Sangat aman dari limitasi secondary rate limit GitHub API.
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => updateSettings({ uploadMethod: 'parallel' })}
+                      className={`flex flex-col items-start gap-1 p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        settings.uploadMethod === 'parallel'
+                          ? 'border-indigo-500 bg-indigo-50/40 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400'
+                          : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900/60'
+                      }`}
+                    >
+                      <span className="text-xs font-bold flex items-center gap-1">
+                        ⚡ Paralel
+                      </span>
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium leading-normal">
+                        Unggah beberapa berkas sekaligus secara bersamaan untuk kecepatan maksimal.
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Parallel Limit (Only shown if Parallel is selected) */}
+                {settings.uploadMethod === 'parallel' && (
+                  <div className="space-y-2 pl-3 border-l-2 border-indigo-500/30 dark:border-indigo-500/20">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-bold text-slate-800 dark:text-white">
+                        Batas Konkurensi Paralel (Simultan)
+                      </label>
+                      <span className="text-xs font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-md">
+                        {settings.parallelLimit || 10} Berkas
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="2"
+                      max="150"
+                      step="1"
+                      value={settings.parallelLimit || 10}
+                      onChange={(e) => updateSettings({ parallelLimit: parseInt(e.target.value, 10) })}
+                      className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none"
+                    />
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {[5, 10, 25, 50, 100, 150].map((val) => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => updateSettings({ parallelLimit: val })}
+                          className={`text-[10px] font-bold px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                            (settings.parallelLimit || 10) === val
+                              ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/20'
+                              : 'bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          {val}x
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-slate-400 leading-normal pt-1">
+                      Rekomendasi: <strong>5-10 berkas</strong>. Menyetel batas di atas 10 (seperti 25, 50, 100, atau 150) mempercepat unggahan proyek masif secara ekstrim, namun meningkatkan risiko pemblokiran rate limit sementara oleh API GitHub jika token Anda memiliki batasan ketat.
+                    </p>
+                  </div>
+                )}
+
                 {/* Custom ignore rules */}
                 <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800/60">
                   <label className="block text-xs font-bold text-slate-800 dark:text-white">

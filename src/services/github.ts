@@ -216,3 +216,170 @@ export async function getRateLimit(token: string): Promise<GitHubRateLimit> {
   };
 }
 
+export interface TreeItem {
+  path: string;
+  mode: '100644' | '100755' | '040000' | '160000' | '120000';
+  type: 'blob' | 'tree' | 'commit';
+  sha: string;
+}
+
+export async function createBlob(
+  token: string,
+  owner: string,
+  repo: string,
+  contentBase64: string
+): Promise<string> {
+  const response = await fetch(`${BASE_URL}/repos/${owner}/${repo}/git/blobs`, {
+    method: 'POST',
+    headers: getHeaders(token),
+    body: JSON.stringify({
+      content: contentBase64,
+      encoding: 'base64',
+    }),
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.message || `Gagal membuat blob berkas. Status: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.sha;
+}
+
+export async function createTree(
+  token: string,
+  owner: string,
+  repo: string,
+  treeItems: TreeItem[],
+  baseTreeSha?: string
+): Promise<string> {
+  const body: any = { tree: treeItems };
+  if (baseTreeSha) {
+    body.base_tree = baseTreeSha;
+  }
+
+  const response = await fetch(`${BASE_URL}/repos/${owner}/${repo}/git/trees`, {
+    method: 'POST',
+    headers: getHeaders(token),
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.message || `Gagal membuat pohon berkas (tree). Status: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.sha;
+}
+
+export async function createCommit(
+  token: string,
+  owner: string,
+  repo: string,
+  message: string,
+  treeSha: string,
+  parents: string[]
+): Promise<string> {
+  const response = await fetch(`${BASE_URL}/repos/${owner}/${repo}/git/commits`, {
+    method: 'POST',
+    headers: getHeaders(token),
+    body: JSON.stringify({
+      message,
+      tree: treeSha,
+      parents,
+    }),
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.message || `Gagal membuat commit. Status: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.sha;
+}
+
+export async function getBranchRef(
+  token: string,
+  owner: string,
+  repo: string,
+  branch: string
+): Promise<{ commitSha: string; treeSha: string } | null> {
+  try {
+    const refRes = await fetch(`${BASE_URL}/repos/${owner}/${repo}/git/ref/heads/${branch}`, {
+      headers: getHeaders(token),
+    });
+
+    if (!refRes.ok) {
+      return null;
+    }
+
+    const refData = await refRes.json();
+    const commitSha = refData.object.sha;
+
+    // Fetch commit to get tree SHA
+    const commitRes = await fetch(`${BASE_URL}/repos/${owner}/${repo}/git/commits/${commitSha}`, {
+      headers: getHeaders(token),
+    });
+
+    if (!commitRes.ok) {
+      return { commitSha, treeSha: commitSha }; // Fallback
+    }
+
+    const commitData = await commitRes.json();
+    return {
+      commitSha,
+      treeSha: commitData.tree.sha,
+    };
+  } catch (error) {
+    console.warn('Error fetching branch reference:', error);
+    return null;
+  }
+}
+
+export async function updateRef(
+  token: string,
+  owner: string,
+  repo: string,
+  branch: string,
+  commitSha: string
+): Promise<void> {
+  const response = await fetch(`${BASE_URL}/repos/${owner}/${repo}/git/refs/heads/${branch}`, {
+    method: 'PATCH',
+    headers: getHeaders(token),
+    body: JSON.stringify({
+      sha: commitSha,
+      force: true,
+    }),
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.message || `Gagal memperbarui referensi branch ${branch}. Status: ${response.status}`);
+  }
+}
+
+export async function createRef(
+  token: string,
+  owner: string,
+  repo: string,
+  branch: string,
+  commitSha: string
+): Promise<void> {
+  const response = await fetch(`${BASE_URL}/repos/${owner}/${repo}/git/refs`, {
+    method: 'POST',
+    headers: getHeaders(token),
+    body: JSON.stringify({
+      ref: `refs/heads/${branch}`,
+      sha: commitSha,
+    }),
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.message || `Gagal membuat referensi branch ${branch}. Status: ${response.status}`);
+  }
+}
+

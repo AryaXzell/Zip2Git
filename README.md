@@ -49,8 +49,8 @@ graph TD
     %% Define Nodes
     LocalZIP[Arsip ZIP Lokal] -->|Drag & Drop| JSZip[JSZip Engine]
     PAT[Personal Access Token] -->|Input Manual| SessionStore[(Session Storage)]
-
-    subgraph BrowserSandbox ["Browser Sandbox (Keamanan Klien 100%)"]
+    
+    subgraph Browser Sandbox (Keamanan Klien 100%)
         JSZip -->|Ekstraksi & Rekursi| MemCache[Memory Buffer File Tree]
         MemCache -->|Filter Berkas Cerdas| FilterEngine[Engine Eliminasi Sampah]
         SessionStore -->|Otentikasi Aman| APICall[GitHub Contents Client]
@@ -59,7 +59,7 @@ graph TD
     FilterEngine -->|Berkas Bersih| APICall
     APICall -->|Koneksi HTTPS Langsung| GitHubAPI{{"api.github.com"}}
 
-    subgraph GitHubCloud ["Infrastruktur GitHub Cloud"]
+    subgraph Infrastruktur GitHub Cloud
         GitHubAPI -->|Cek Duplikasi SHA| GitCompare[SHA Validator]
         GitCompare -->|Tulis Berkas Baru/Update| GitCommit[Commit & Push]
         GitCommit -->|Hasil Akhir| GitRepo[(Repositori Target)]
@@ -185,19 +185,16 @@ Untuk mengizinkan Zip2Git berinteraksi dengan akun GitHub Anda:
 1. Buka [Halaman Pengaturan Token GitHub](https://github.com/settings/tokens).
 2. Klik tombol **Generate new token** dan pilih **Generate new token (classic)**.
 3. Berikan nama catatan (misal: `Zip2Git Web Client`).
-4. Pada bagian **Select Scopes**, centang opsi berikut sesuai kebutuhan:
-   - **`repo`** (Wajib — mengontrol akses penuh ke repositori privat dan publik, termasuk membuat repo baru dan menulis berkas).
-   - **`workflow`** (Opsional — hanya diperlukan jika proyek Anda menyertakan berkas di dalam `.github/workflows/`, karena GitHub membatasi penulisan berkas workflow tanpa scope ini).
-5. Gulir ke bawah, klik **Generate token**, lalu salin string token tersebut. Token classic berformat `ghp_...` hanya ditampilkan satu kali, jadi simpan sementara sebelum menutup halaman.
+4. Pada bagian **Select Scopes**, centang opsi:
+   - **`repo`** (Wajib - Mengontrol akses penuh ke repositori privat dan publik).
+5. Gulir ke bawah, klik **Generate token**, lalu salin string token tersebut.
 6. Masukkan token tersebut pada halaman `/login` di aplikasi Zip2Git Anda.
 
 ---
 
 ## 🔒 Keamanan & Privasi Tingkat Tinggi
 
-Aplikasi ini dirancang dengan prinsip keamanan sisi-klien:
+Aplikasi ini **100% aman**:
 - Token akses GitHub Anda hanya disimpan di memori temporer peramban (`sessionStorage`) dan tidak pernah dikirimkan ke server kami.
-- Dekompresi arsip ZIP dilakukan sepenuhnya secara lokal. Kode Anda dikirimkan langsung dari peramban Anda ke API resmi GitHub (`api.github.com`), tanpa melewati server perantara.
+- Dekompresi arsip ZIP dilakukan sepenuhnya secara lokal. Kode Anda langsung dikirimkan langsung dari peramban Anda ke API resmi GitHub (`api.github.com`).
 - Tidak ada telemetry tracker, iklan, cookie pihak ketiga, atau logging data apa pun.
-
-> ⚠️ **Catatan:** `sessionStorage` bersifat sementara per-tab, tetapi tetap merupakan penyimpanan sisi-klien yang bisa diakses oleh skrip lain di origin yang sama (risiko XSS). Jangan gunakan PAT dengan scope lebih luas dari yang diperlukan, dan cabut (revoke) token dari [pengaturan GitHub](https://github.com/settings/tokens) setelah selesai digunakan bila memungkinkan.

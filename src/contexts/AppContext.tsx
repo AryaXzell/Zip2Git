@@ -53,9 +53,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [settings, setSettings] = useState<AppSettings>(() => {
     const saved = localStorage.getItem('zip2git_settings_v2');
+    const defaultSettings: AppSettings = {
+      theme: 'dark',
+      clearSessionOnClose: true,
+      defaultBranch: 'main',
+      defaultCommitMessage: 'Upload via Zip2Git 📦',
+      autoOverwrite: true,
+      uploadMethod: 'parallel',
+      parallelLimit: 10,
+      customIgnoreRules: '# Tambahkan ekstensi atau folder yang ingin di-ignore (satu per baris)\n# Contoh:\n# *.jks\n# *.pem\n# *.apk\n# local.properties'
+    };
+
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        return {
+          ...defaultSettings,
+          ...parsed,
+          // Handle legacy theme from localStorage if theme is absent or was saved separately
+          theme: parsed.theme || (localStorage.getItem('zip2git_theme') as 'dark' | 'light' | null) || 'dark'
+        };
       } catch (e) {
         console.warn('Failed to parse settings:', e);
       }
@@ -64,12 +81,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Legacy fallback
     const savedTheme = localStorage.getItem('zip2git_theme') as 'dark' | 'light' | null;
     return {
-      theme: savedTheme || 'dark',
-      clearSessionOnClose: true,
-      defaultBranch: 'main',
-      defaultCommitMessage: 'Upload via Zip2Git 📦',
-      autoOverwrite: true,
-      customIgnoreRules: '# Tambahkan ekstensi atau folder yang ingin di-ignore (satu per baris)\n# Contoh:\n# *.jks\n# *.pem\n# *.apk\n# local.properties'
+      ...defaultSettings,
+      theme: savedTheme || 'dark'
     };
   });
 

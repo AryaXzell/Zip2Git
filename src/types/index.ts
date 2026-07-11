@@ -62,6 +62,8 @@ export interface AppSettings {
   defaultCommitMessage: string;
   autoOverwrite: boolean;
   customIgnoreRules?: string;
+  uploadMethod: 'sequential' | 'parallel';
+  parallelLimit: number;
 }
 
 export interface GitHubRateLimit {
