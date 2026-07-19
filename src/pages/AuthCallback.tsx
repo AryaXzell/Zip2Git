@@ -16,13 +16,15 @@ export const AuthCallback: React.FC = () => {
   const hasRun = useRef(false);
 
   useEffect(() => {
-    // React 19 StrictMode / re-renders can fire effects twice — the
-    // OAuth "code" is single-use, so guard against running this again.
     if (hasRun.current) return;
     hasRun.current = true;
 
     const run = async () => {
-      const params = new URLSearchParams(window.location.search);
+      const hash = window.location.hash;
+      const hashQueryIndex = hash.indexOf('?');
+      const hashQuery = hashQueryIndex !== -1 ? hash.slice(hashQueryIndex + 1) : '';
+
+      const params = new URLSearchParams(hashQuery || window.location.search);
       const code = params.get('code');
       const state = params.get('state');
       const oauthError = params.get('error');
@@ -33,7 +35,7 @@ export const AuthCallback: React.FC = () => {
       }
 
       if (!code) {
-        setErrorMsg('Kode otorisasi tidak ditemukan pada URL callback.');
+        setErrorMsg('Kode otorisasi tidak ditemukan atau sudah digunakan. Silakan klik "Masuk dengan GitHub" lagi untuk memulai sesi baru.');
         return;
       }
 
@@ -44,6 +46,8 @@ export const AuthCallback: React.FC = () => {
         setErrorMsg('Verifikasi keamanan (state) gagal. Silakan coba login kembali.');
         return;
       }
+
+      window.history.replaceState(null, '', `${window.location.pathname}#/auth/callback`);
 
       try {
         const res = await fetch('/api/auth/github', {
@@ -66,7 +70,7 @@ export const AuthCallback: React.FC = () => {
         }
       } catch (err: any) {
         console.error('OAuth callback error:', err);
-        setErrorMsg(err.message || 'Terjadi kesalahan saat proses login dengan GitHub.');
+        setErrorMsg(err.message || 'Terjadi kesalahan saat proses login dengan GitHub. Silakan coba lagi.');
         toast.error('Gagal login dengan GitHub.');
       }
     };
