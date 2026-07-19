@@ -3,85 +3,38 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { UAParser } from "ua-parser-js";
 
-// Simple in-memory rate limiter to stop basic spam/abuse.
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
-const RATE_LIMIT_MAX = 5; // max 5 reports per IP per minute
-
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(ip);
-  if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return false;
-  }
-  if (entry.count >= RATE_LIMIT_MAX) {
-    return true;
-  }
-  entry.count += 1;
-  return false;
-}
-
-const MAX_LENGTHS = {
-  name: 100,
-  category: 50,
-  message: 2000,
-  githubUsername: 100,
-  githubName: 100,
-  url: 500,
-  version: 50,
-};
-
-function sanitizeString(value: unknown, maxLen: number): string {
-  if (typeof value !== "string") return "";
-  return value.trim().slice(0, maxLen);
-}
-
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Middleware to parse JSON bodies (with a size limit to prevent abuse)
-  app.use(express.json({ limit: "100kb" }));
+  // Middleware to parse JSON bodies
+  app.use(express.json());
 
   // API Route for Support/FAQ Report
   app.post("/api/report", async (req, res) => {
     try {
-      const rawIp = (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "Unknown";
-      // x-forwarded-for can be a list of IPs, take the first one
-      const ip = rawIp.split(",")[0].trim();
+      const { name, category, message, githubUsername, githubName, url, version } = req.body;
 
-      if (isRateLimited(ip)) {
-        return res.status(429).json({ error: "Terlalu banyak laporan dikirim. Coba lagi dalam beberapa saat." });
-      }
-
-      if (!req.body || typeof req.body !== "object") {
-        return res.status(400).json({ error: "Isi permintaan tidak valid." });
-      }
-
-      const name = sanitizeString(req.body.name, MAX_LENGTHS.name);
-      const category = sanitizeString(req.body.category, MAX_LENGTHS.category);
-      const message = sanitizeString(req.body.message, MAX_LENGTHS.message);
-      const githubUsername = sanitizeString(req.body.githubUsername, MAX_LENGTHS.githubUsername);
-      const githubName = sanitizeString(req.body.githubName, MAX_LENGTHS.githubName);
-      const url = sanitizeString(req.body.url, MAX_LENGTHS.url);
-      const version = sanitizeString(req.body.version, MAX_LENGTHS.version);
-
-      if (!message) {
+      if (!message || message.trim() === "") {
         return res.status(400).json({ error: "Pesan laporan wajib diisi." });
       }
 
       // Determine Display Name
       let displayName = "Anonymous";
-      if (name) {
-        displayName = name;
-      } else if (githubName) {
-        displayName = githubName;
-      } else if (githubUsername) {
-        displayName = githubUsername;
+      if (name && name.trim() !== "") {
+        displayName = name.trim();
+      } else if (githubName && githubName.trim() !== "") {
+        displayName = githubName.trim();
+      } else if (githubUsername && githubUsername.trim() !== "") {
+        displayName = githubUsername.trim();
       }
 
-      const gitUsername = githubUsername;
+      const gitUsername = githubUsername || "";
+
+      // Resolve IP Address
+      const rawIp = (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "Unknown";
+      // x-forwarded-for can be a list of IPs, take the first one
+      const ip = rawIp.split(",")[0].trim();
 
       // Resolve Device & Browser Info from User-Agent
       const userAgent = req.headers["user-agent"] || "";
@@ -121,9 +74,7 @@ async function startServer() {
         return unsafe
           .replace(/&/g, "&amp;")
           .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/"/g, "&quot;")
-          .replace(/'/g, "&#39;");
+          .replace(/>/g, "&gt;");
       };
 
       // Format beautiful Telegram Message (HTML mode is robust against parse crashes)
