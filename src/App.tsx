@@ -8,6 +8,7 @@ import { AppProvider } from './contexts/AppContext';
 import { Layout } from './layouts/Layout';
 import { Home } from './pages/Home';
 import { Login } from './pages/Login';
+import { AuthCallback } from './pages/AuthCallback';
 import { Dashboard } from './pages/Dashboard';
 import { SettingsPage } from './pages/Settings';
 import { ActiveSession } from './pages/ActiveSession';
@@ -23,6 +24,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/sesi" element={<ActiveSession />} />
             <Route path="/tentang" element={<AboutPage />} />

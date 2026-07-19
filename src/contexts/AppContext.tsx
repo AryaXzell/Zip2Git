@@ -19,6 +19,7 @@ interface AppContextType {
   isLoadingRepos: boolean;
   isAuthenticating: boolean;
   login: (token: string) => Promise<boolean>;
+  loginWithOAuthToken: (token: string) => Promise<boolean>;
   logout: (confirmRequired?: boolean) => boolean;
   clearSession: () => void;
   refreshRepos: () => Promise<void>;
@@ -34,11 +35,13 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [token, setToken] = useState<string | null>(() => {
-    return sessionStorage.getItem('zip2git_token');
+    // Prefer localStorage (persists across browser restarts).
+    // Fall back to sessionStorage once, to migrate any pre-existing session.
+    return localStorage.getItem('zip2git_token') || sessionStorage.getItem('zip2git_token');
   });
 
   const [user, setUser] = useState<GitHubUser | null>(() => {
-    const saved = sessionStorage.getItem('zip2git_user');
+    const saved = localStorage.getItem('zip2git_user') || sessionStorage.getItem('zip2git_user');
     return saved ? JSON.parse(saved) : null;
   });
 
@@ -48,7 +51,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isLogoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
   const [history, setHistory] = useState<UploadHistoryItem[]>(() => {
-    const saved = sessionStorage.getItem('zip2git_history');
+    const saved = localStorage.getItem('zip2git_history') || sessionStorage.getItem('zip2git_history');
     return saved ? JSON.parse(saved) : [];
   });
 
@@ -99,9 +102,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('zip2git_theme', settings.theme);
   }, [settings]);
 
-  // Persist history to sessionStorage
+  // Persist history to localStorage (also clean up legacy sessionStorage copy)
   useEffect(() => {
-    sessionStorage.setItem('zip2git_history', JSON.stringify(history));
+    localStorage.setItem('zip2git_history', JSON.stringify(history));
+    sessionStorage.removeItem('zip2git_history');
   }, [history]);
 
   // Auto-fetch repos if token exists on load
@@ -124,14 +128,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const persistSession = (authToken: string, userData: GitHubUser) => {
+    localStorage.setItem('zip2git_token', authToken);
+    localStorage.setItem('zip2git_user', JSON.stringify(userData));
+    // Clean up any legacy sessionStorage copies so we don't read stale data later
+    sessionStorage.removeItem('zip2git_token');
+    sessionStorage.removeItem('zip2git_user');
+    setToken(authToken);
+    setUser(userData);
+  };
+
   const login = async (authToken: string): Promise<boolean> => {
     setIsAuthenticating(true);
     try {
       const userData = await validateToken(authToken);
-      sessionStorage.setItem('zip2git_token', authToken);
-      sessionStorage.setItem('zip2git_user', JSON.stringify(userData));
-      setToken(authToken);
-      setUser(userData);
+      persistSession(authToken, userData);
       toast.success(`Selamat datang, ${userData.name || userData.login}!`);
       return true;
     } catch (err: any) {
@@ -142,8 +153,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // Used after a successful GitHub OAuth redirect: we already have a valid
+  // access_token from the /api/auth/github exchange, we just need to fetch
+  // the user profile and persist the session the same way as PAT login.
+  const loginWithOAuthToken = async (authToken: string): Promise<boolean> => {
+    setIsAuthenticating(true);
+    try {
+      const userData = await validateToken(authToken);
+      persistSession(authToken, userData);
+      toast.success(`Selamat datang, ${userData.name || userData.login}!`);
+      return true;
+    } catch (err: any) {
+      toast.error(err.message || 'Gagal masuk dengan GitHub OAuth.');
+      return false;
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
   const clearSession = () => {
-    sessionStorage.clear();
+    localStorage.removeItem('zip2git_token');
+    localStorage.removeItem('zip2git_user');
+    localStorage.removeItem('zip2git_history');
+    sessionStorage.removeItem('zip2git_token');
+    sessionStorage.removeItem('zip2git_user');
+    sessionStorage.removeItem('zip2git_history');
     setToken(null);
     setUser(null);
     setRepos([]);
@@ -226,6 +260,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const clearHistory = () => {
     setHistory([]);
+    localStorage.removeItem('zip2git_history');
     sessionStorage.removeItem('zip2git_history');
     toast.success('Riwayat berhasil dihapus.');
   };
@@ -243,6 +278,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isLoadingRepos,
         isAuthenticating,
         login,
+        loginWithOAuthToken,
         logout,
         clearSession,
         refreshRepos,
